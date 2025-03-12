@@ -1,0 +1,101 @@
+#!/bin/bash
+#A script to suspend a linux machine when all connected users haven been idle 
+
+#check for active X sessions and xrdp sessions and terminal sessions
+
+#if all users are idle longer than a given timeout, suspend the system to ram
+
+#30min timeout to shutdown when idle
+timeout=1800000 
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+#wait 15min after startup to give someone a chance to connect
+sleep 900
+pattern="/var/run/xrdp/sockdir/*/xrdp_display*"
+while true; do
+  suspend=true
+  #check all xrdp sessions
+  if ls $pattern >/dev/null 2>&1; then
+    for file in $pattern; do
+        number=$(basename "$file" | grep -o '[0-9]\+$')
+        owner=$(stat -c '%U' "$file")
+        
+        echo "File: $(basename "$file")"
+        echo "Owner: $owner"
+        echo "Display-ID: $number"
+        export DISPLAY=:$number 
+        idle=`sudo -u $owner xprintidle`
+        echo  "Idle: $idle"
+
+        echo "----------------"
+        if  [ -n "$idle" ] && [ $idle -lt $timeout ]; then
+          suspend=false
+          break
+        fi
+    done
+  else
+    echo "No xrdp sessions found."
+  fi
+
+  #check idle time of X sessions
+  while read -r line; do
+    # Extract username and display
+    user=$(echo "$line" | awk '{print $1}')
+    display=$(echo "$line" | awk '{print $2}' | grep -o ':[0-9]\+\(\.[0-9]\+\)\?')
+    echo "checking $user on $display"
+    if [ -n "$display" ]; then
+      # Export display for xprintidle
+      export DISPLAY="$display"
+      
+      idle=`sudo -u $user xprintidle`
+      
+    if  [ -n "$idle" ] && [ $idle -lt $timeout ]; then
+      echo "$user $idle"
+      suspend=false
+      break
+    fi
+    fi
+  done < <(who)
+
+  #check all other terminal sessions
+  current_time=$(date +%s)
+  while read -r line; do
+    # Extract tty device name from who output
+    tty=$(echo "$line" | awk '{print $2}')
+    if [ -n "$tty" ]; then
+      device="/dev/$tty"
+      if [ -e "$device" ]; then
+        # Get last access time in seconds
+        atime=$(stat -c %X "$device")
+        
+        if [ -n "$atime" ]; then
+          # Calculate difference
+          diff=$((current_time - atime))
+          idle=$(($diff * 1000))
+          
+          # Print results
+          echo "Terminal: $tty"
+          echo "Last accessed: $(date -d "@$atime")"
+          echo "Seconds since last access: $diff"
+          echo "---------------------------------------------"
+          if  [ -n "$idle" ] && [ $idle -lt $timeout ]; then
+            echo "$user $idle"
+            suspend=false
+            break
+          fi
+        fi
+      fi
+    fi
+  done < <(who)
+
+
+
+  if [ $suspend == true  ]; then
+    echo suspend
+    pm-suspend 
+    sleep 600
+  fi
+
+  sleep 60
+
+done
+
