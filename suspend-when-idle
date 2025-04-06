@@ -5,14 +5,70 @@
 
 #if all users are idle longer than a given timeout, suspend the system to ram
 
+# example crontab entry:
+# @reboot /usr/bin/screen -d -m -S suspend-when-idle  /usr/local/sbin/suspend-when-idle
+
 #30min timeout to shutdown when idle
 timeout=1800000 
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+
+is_samba_active(){
+
+  shares=()
+
+  echo "samba shares"
+  while read line; do
+      [[ "$line" =~ ^\[ ]] && name="$line"
+      [[ "$line" =~ ^[[:space:]]*path ]] && echo -e "$name\t$line" && shares+=(`echo $line |awk -F= '{print $2}'|awk '{$1=$1;print}'`)
+  done <<<`testparm -s 2>/dev/null`
+
+
+  for samba_pid in `ps -e -o cmd,pid|grep "^smbd:"|awk '{print $NF}'`; do
+    echo "smbd pid $samba_pid, checking open files in shared folders..."
+    for fd in /proc/$samba_pid/fd/*; do
+      file=`readlink "$fd"`
+      for (( i=0; i<${#shares[@]}; i++ )); do
+#        echo "open files in ${shares[$i]} ?"
+        case $file in ${shares[$i]}*)
+          echo "$file in ${shares[$i]}"
+          if [ -f "$file" ]; then
+            echo "$file is file!"
+            return 0
+          fi
+        esac
+      done
+    done
+  done
+  return 1
+}
+
+
+
 #wait 15min after startup to give someone a chance to connect
 sleep 900
 pattern="/var/run/xrdp/sockdir/*/xrdp_display*"
 while true; do
+  date
   suspend=true
+
+  #check if btrfs is scrubbing
+  if [ `ps -ef|grep "btrfs scrub"|wc -l` -gt 1 ]; then
+	  echo scrub
+	  suspend=false
+	  sleep 120
+	  continue
+  fi
+
+if is_samba_active ; then
+  echo "samba active"
+  suspend=false
+  sleep 120
+  continue
+fi
+
+
+
   #check all xrdp sessions
   if ls $pattern >/dev/null 2>&1; then
     for file in $pattern; do
