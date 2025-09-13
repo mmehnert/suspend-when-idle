@@ -54,10 +54,10 @@ while true; do
 
   #check if btrfs is scrubbing
   if [ `ps -ef|grep "btrfs scrub"|wc -l` -gt 1 ]; then
-	  echo scrub
-	  suspend=false
-	  sleep 120
-	  continue
+    echo scrub
+    suspend=false
+    sleep 120
+    continue
   fi
 
 if is_samba_active ; then
