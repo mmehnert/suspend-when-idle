@@ -143,7 +143,14 @@ fi
     fi
   done < <(who)
 
-
+  dlna=$(ss -tp | grep minidlna|wc -l)
+  if [ $dlna -gt 0 ]; then
+    sleep 600
+      dlna=$(ss -tp | grep minidlna|wc -l)
+      if [ $dlna -gt 0 ]; then
+      suspend=false
+        fi
+  fi
 
   if [ $suspend == true  ]; then
     echo suspend
